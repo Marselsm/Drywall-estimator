@@ -34,6 +34,30 @@ const repairPricing = {
   "Crack repair": 250,
 };
 
+const materialLibrary = {
+  "Standard 1/2 in drywall sheet": { category: "Drywall", unit: "sheet", unitCost: 18 },
+  "Lightweight 1/2 in drywall sheet": { category: "Drywall", unit: "sheet", unitCost: 22 },
+  "5/8 in Type X drywall sheet": { category: "Drywall", unit: "sheet", unitCost: 28 },
+  "Moisture-resistant drywall sheet": { category: "Drywall", unit: "sheet", unitCost: 26 },
+  "Mold-resistant drywall sheet": { category: "Drywall", unit: "sheet", unitCost: 32 },
+  "Soundproof drywall sheet": { category: "Drywall", unit: "sheet", unitCost: 88 },
+  "Sheetrock 20": { category: "Compound", unit: "bag", unitCost: 19 },
+  "Sheetrock 45": { category: "Compound", unit: "bag", unitCost: 19 },
+  "Sheetrock 90": { category: "Compound", unit: "bag", unitCost: 19 },
+  "All-purpose mud box": { category: "Compound", unit: "box", unitCost: 22 },
+  "Paper tape roll": { category: "Tape", unit: "roll", unitCost: 8 },
+  "Mesh tape roll": { category: "Tape", unit: "roll", unitCost: 11 },
+  "Drywall screws": { category: "Fasteners", unit: "box", unitCost: 12 },
+  "Corner bead": { category: "Trim", unit: "piece", unitCost: 6 },
+  "Backing wood / strapping": { category: "Framing", unit: "piece", unitCost: 8 },
+  "Sanding sponge / paper": { category: "Sanding", unit: "pack", unitCost: 7 },
+  "Primer": { category: "Paint/Primer", unit: "gallon", unitCost: 45 },
+  "Plastic / poly": { category: "Protection", unit: "roll", unitCost: 18 },
+  "Garbage / disposal bags": { category: "Disposal", unit: "box", unitCost: 12 },
+  "Misc material allowance": { category: "Misc", unit: "allowance", unitCost: 25 },
+};
+const materialOptions = Object.keys(materialLibrary);
+
 const categories = Object.keys(pricing);
 const boardOptions = Object.keys(boardTypes);
 const yesNo = ["Yes", "No"];
@@ -81,16 +105,11 @@ const emptyArea = () => ({
 const emptyRepair = () => ({ id: uid(), type: "Small holes / nail pops", qty: 1, notes: "", include: "Yes" });
 const emptyTravel = () => ({ id: uid(), purpose: "Client visit", description: "", manualDriveMinutes: 30, trips: 1, workers: 1, vehicleCost: 12, include: "Yes" });
 const emptyManual = () => ({ id: uid(), description: "Custom line item", qty: 1, unit: "each", rate: 0, include: "Yes" });
-const emptyManualMaterial = () => ({
-  id: uid(),
-  category: "Drywall",
-  material: "Manual material",
-  qty: 1,
-  unit: "each",
-  unitCost: 0,
-  include: "Yes",
-  notes: "",
-});
+const emptyManualMaterial = () => {
+  const material = "Standard 1/2 in drywall sheet";
+  const item = materialLibrary[material];
+  return { id: uid(), material, category: item.category, qty: 1, unit: item.unit, unitCost: item.unitCost, include: "Yes", notes: "" };
+};
 
 const defaultSettings = {
   darkMode: "No",
@@ -222,28 +241,29 @@ export default function App() {
     const manualLines = manual.filter((m) => m.include === "Yes").map((m) => ({ id: m.id, source: "Manual", description: m.description, qty: Number(m.qty) || 0, unit: m.unit || "each", rate: Number(m.rate) || 0, materialRate: 0, activeHours: 0, labourHours: 0, visits: 0, total: (Number(m.qty) || 0) * (Number(m.rate) || 0) }));
 
     const manualMaterialLines = manualMaterials.filter((m) => m.include === "Yes").map((m) => {
+      const libraryItem = materialLibrary[m.material] || {};
       const qty = Number(m.qty) || 0;
-      const unitCost = Number(m.unitCost) || 0;
-      const wasteRate = (Number(settings.wastePercent) || 0) / 100;
-      const total = qty * unitCost * (1 + wasteRate);
-      return { ...m, qty, unitCost, wasteRate, total };
+      const unitCost = Number(m.unitCost) || Number(libraryItem.unitCost) || 0;
+      const wasteMultiplier = 1 + ((Number(settings.wastePercent) || 0) / 100);
+      const total = qty * unitCost * wasteMultiplier;
+      return {
+        id: m.id,
+        source: "Material",
+        category: m.category || libraryItem.category || "Misc",
+        description: `${m.material}${m.notes ? ` - ${m.notes}` : ""}`,
+        qty,
+        unit: m.unit || libraryItem.unit || "each",
+        rate: unitCost,
+        materialRate: 0,
+        activeHours: 0,
+        labourHours: 0,
+        visits: 0,
+        directMaterialCost: total,
+        total,
+      };
     });
 
-    const manualMaterialEstimateLines = manualMaterialLines.map((m) => ({
-      id: `mat-${m.id}`,
-      source: "Material",
-      description: `${m.material}${m.notes ? ` - ${m.notes}` : ""}`,
-      qty: m.qty,
-      unit: m.unit || "each",
-      rate: m.unitCost * (1 + (Number(settings.wastePercent) || 0) / 100),
-      materialRate: 0,
-      activeHours: 0,
-      labourHours: 0,
-      visits: 0,
-      total: m.total,
-    }));
-
-    const lines = [...areaLines, ...repairLines, ...travelLines, ...manualLines, ...manualMaterialEstimateLines].filter((line) => line.total > 0 || line.qty > 0 || line.description);
+    const lines = [...areaLines, ...repairLines, ...travelLines, ...manualLines, ...manualMaterialLines].filter((line) => line.total > 0 || line.qty > 0 || line.description);
     const nonTravelLines = lines.filter((line) => line.source !== "Travel");
     const travelTotal = lines.filter((line) => line.source === "Travel").reduce((sum, line) => sum + line.total, 0);
     const workSubtotal = lines.reduce((sum, line) => sum + line.total, 0);
@@ -255,7 +275,7 @@ export default function App() {
     const subtotal = subtotalBeforeMarkup + markupAmount;
     const labourExpense = lines.reduce((sum, line) => sum + line.labourHours * (Number(settings.currentLabour) || 0), 0);
     const autoMaterialExpense = lines.reduce((sum, line) => sum + (line.qty * (line.materialRate || 0)), 0);
-    const manualMaterialExpense = manualMaterialLines.reduce((sum, line) => sum + line.total, 0);
+    const manualMaterialExpense = manualMaterialLines.reduce((sum, line) => sum + (line.directMaterialCost || line.total || 0), 0);
     const materialExpense = autoMaterialExpense + manualMaterialExpense;
     const vehicleExpense = lines.reduce((sum, line) => sum + (line.vehicleCost || 0), 0);
     const directCost = labourExpense + materialExpense + vehicleExpense;
@@ -287,8 +307,9 @@ export default function App() {
       const key = line.board || "Standard 1/2 in";
       acc.byBoard[key] = (acc.byBoard[key] || 0) + areaWithWaste / (Number(settings.boardSqFt) || 32);
       return acc;
-    }, { totalArea: 0, sheetArea: 0, sheets: 0, mudBoxes: 0, tapeRolls: 0, linearTapeFt: 0, screws: 0, byBoard: {}, manualMaterials: [] });
+    }, { totalArea: 0, sheetArea: 0, sheets: 0, mudBoxes: 0, tapeRolls: 0, linearTapeFt: 0, screws: 0, byBoard: {} });
     materialTakeoff.manualMaterials = manualMaterialLines;
+    materialTakeoff.manualMaterialExpense = manualMaterialExpense;
 
 
     const compoundPlan = areaLines.map((line) => {
@@ -314,35 +335,25 @@ export default function App() {
       else marketLabel = "Above market high / premium quote";
     }
 
-    const groupedClientAreas = Object.values(areaLines.reduce((acc, line) => {
-      const key = line.areaName || "Drywall Areas";
-      if (!acc[key]) acc[key] = { id: `client-area-${key}`, source: "Labour", description: key, details: [], qty: 1, unit: "", rate: 0, materialRate: 0, total: 0, labourHours: 0 };
-      acc[key].details.push(line.clientDetail || line.description);
-      acc[key].total += line.total;
-      acc[key].labourHours += line.labourHours || 0;
-      return acc;
-    }, {}));
-    const repairClientDetails = repairLines.map((line) => `${line.description}: ${fmt(line.qty)} ${line.unit}`);
-    const manualClientDetails = manualLines.map((line) => `${line.description}: ${fmt(line.qty)} ${line.unit}`);
-    const labourDetails = [
-      ...groupedClientAreas.flatMap((line) => [line.description, ...(line.details || []).map((detail) => `• ${detail}`)]),
-      ...(repairClientDetails.length ? ["Repairs", ...repairClientDetails.map((detail) => `• ${detail}`)] : []),
-      ...(manualClientDetails.length ? ["Additional work", ...manualClientDetails.map((detail) => `• ${detail}`)] : []),
-    ];
-    const manualMaterialDetails = manualMaterialLines.map((m) => `${m.material}: ${fmt(m.qty)} ${m.unit}${m.notes ? ` — ${m.notes}` : ""}`);
-    const materialDetails = [
-      ...(autoMaterialExpense > 0 ? ["Automatic material allowance for board, compound, tape, screws, and related drywall consumables."] : []),
-      ...(manualMaterialDetails.length ? ["Manual materials", ...manualMaterialDetails.map((detail) => `• ${detail}`)] : []),
-    ];
-    const clientBaseTotal = workSubtotal || 0;
-    const clientScale = clientBaseTotal > 0 ? preTax / clientBaseTotal : 1;
-    const clientMaterialBase = autoMaterialExpense + manualMaterialExpense;
-    const clientMaterialTotal = Math.min(preTax, Math.max(0, clientMaterialBase * clientScale));
+    const labourScopeDetails = [
+      ...areaLines.map((line) => line.clientDetail || line.description),
+      ...repairLines.map((line) => line.description),
+      ...manualLines.map((line) => line.description),
+    ].filter(Boolean);
+    const materialScopeDetails = [
+      ...Object.entries(materialTakeoff.byBoard).map(([board, count]) => `${board}: ${Math.ceil(count)} sheet${Math.ceil(count) === 1 ? "" : "s"}`),
+      ...(materialTakeoff.mudBoxes > 0 ? [`Compound: approx. ${Math.ceil(materialTakeoff.mudBoxes)} box/bag${Math.ceil(materialTakeoff.mudBoxes) === 1 ? "" : "s"}`] : []),
+      ...(materialTakeoff.tapeRolls > 0 ? [`Tape: approx. ${Math.ceil(materialTakeoff.tapeRolls)} roll${Math.ceil(materialTakeoff.tapeRolls) === 1 ? "" : "s"}`] : []),
+      ...manualMaterialLines.map((line) => `${line.description}: ${fmt(line.qty)} ${line.unit}`),
+    ].filter(Boolean);
+
+    const baseMaterialShare = directCost > 0 ? materialExpense / directCost : 0;
+    const clientMaterialTotal = preTax * baseMaterialShare;
     const clientLabourTotal = Math.max(0, preTax - clientMaterialTotal);
     const clientLines = [
-      { id: "client-labour", source: "Labour", description: "Labour", details: labourDetails, qty: 1, unit: "", rate: 0, materialRate: 0, total: clientLabourTotal, labourHours: 0 },
-      { id: "client-materials", source: "Materials", description: "Materials", details: materialDetails, qty: 1, unit: "", rate: 0, materialRate: 0, total: clientMaterialTotal, labourHours: 0 },
-    ].filter((line) => line.total > 0 || line.details.length > 0);
+      { id: "client-labour", source: "Labour", description: "Labour", details: labourScopeDetails, qty: 1, unit: "", rate: 0, materialRate: 0, total: clientLabourTotal, labourHours: 0 },
+      { id: "client-materials", source: "Materials", description: "Materials", details: materialScopeDetails, qty: 1, unit: "", rate: 0, materialRate: 0, total: clientMaterialTotal, labourHours: 0 },
+    ].filter((line) => line.total > 0 || line.details.length);
 
     return { lines, clientLines, workSubtotal, minimumAdjustment, subtotalBeforeOverhead, overheadAmount, subtotalBeforeMarkup, markupAmount, subtotal, targetMarginAdjustment, preTax, hstAmount, total, deposit, directCost, labourExpense, autoMaterialExpense, manualMaterialExpense, materialExpense, vehicleExpense, labourHours, activeHours, suggestedClockHours, factor, margin, market, marketLabel, travelTotal, materialTakeoff, manualMaterialLines, compoundPlan, stagePlan, estimatedWorkDays, suggestedTripCount };
   }, [areas, repairs, travel, manual, manualMaterials, settings]);
@@ -352,7 +363,17 @@ export default function App() {
   const updateRepair = (id, field, value) => setRepairs((rows) => rows.map((r) => r.id === id ? { ...r, [field]: value } : r));
   const updateTravel = (id, field, value) => setTravel((rows) => rows.map((r) => r.id === id ? { ...r, [field]: value } : r));
   const updateManual = (id, field, value) => setManual((rows) => rows.map((r) => r.id === id ? { ...r, [field]: value } : r));
-  const updateManualMaterial = (id, field, value) => setManualMaterials((rows) => rows.map((r) => r.id === id ? { ...r, [field]: value } : r));
+  const updateManualMaterial = (id, field, value) => setManualMaterials((rows) => rows.map((r) => {
+    if (r.id !== id) return r;
+    const next = { ...r, [field]: value };
+    if (field === "material") {
+      const item = materialLibrary[value] || {};
+      next.category = item.category || next.category || "Misc";
+      next.unit = item.unit || next.unit || "each";
+      next.unitCost = item.unitCost ?? next.unitCost ?? 0;
+    }
+    return next;
+  }));
 
   function saveLocal() {
     localStorage.setItem("drywallEstimatorDraft", JSON.stringify({ project, settings, areas, repairs, travel, manual, manualMaterials }));
@@ -395,7 +416,7 @@ export default function App() {
 
       {tab === "travel" && <Card title="Travel & Pickup" action={<button onClick={() => setTravel([...travel, emptyTravel()])}><Plus size={16} /> Add Travel</button>}><div className="help">Enter total manual drive time for each trip. On the client quote, this is shown as labour / mobilization, not as a separate travel charge.</div><div className="tableWrap"><table><thead><tr><th>Include</th><th>Purpose</th><th>Description</th><th>Total Drive Minutes / Trip</th><th>Trips</th><th>Workers Travelling</th><th>Vehicle/Fuel $ / Trip</th><th>Internal Line Total</th><th></th></tr></thead><tbody>{travel.map((t) => { const effectiveTrips = settings.autoTravelTrips !== "No" ? (calcs.suggestedTripCount || 0) : (Number(t.trips) || 0); const driveHours = ((Number(t.manualDriveMinutes) || 0) * effectiveTrips) / 60; const workerHours = driveHours * (Number(t.workers) || 1); const lineTotal = workerHours * (Number(settings.currentLabour) || 0) + (Number(t.vehicleCost) || 0) * effectiveTrips; return <tr key={t.id}><td><ToggleYesNo value={t.include} onChange={(v) => updateTravel(t.id, "include", v)} /></td><td><Select value={t.purpose} options={["Client visit", "Material pickup", "Home Depot run", "Kent/RONA run", "Supplier pickup", "Dump run", "Return trip", "Other"]} onChange={(v) => updateTravel(t.id, "purpose", v)} /></td><td><input placeholder="Ex: shop to Home Depot and back" value={t.description} onChange={(e) => updateTravel(t.id, "description", e.target.value)} /></td><td><input type="number" value={t.manualDriveMinutes} onChange={(e) => updateTravel(t.id, "manualDriveMinutes", e.target.value)} /></td><td>{settings.autoTravelTrips !== "No" ? <span className="autoTrips">{calcs.suggestedTripCount || 0} auto</span> : <input type="number" value={t.trips} onChange={(e) => updateTravel(t.id, "trips", e.target.value)} />}</td><td><input type="number" value={t.workers} onChange={(e) => updateTravel(t.id, "workers", e.target.value)} /></td><td><input type="number" value={t.vehicleCost} onChange={(e) => updateTravel(t.id, "vehicleCost", e.target.value)} /></td><td><strong>{money(lineTotal)}</strong></td><td><IconButton onClick={() => setTravel(travel.filter((x) => x.id !== t.id))} /></td></tr> })}</tbody></table></div></Card>}
 
-      {tab === "materials" && <Card title="Material Takeoff" action={<button onClick={() => setManualMaterials([...manualMaterials, emptyManualMaterial()])}><Plus size={16} /> Add Manual Material</button>}><div className="help">This is an estimate only. It uses your area lines plus any manual materials you add for repairs, patches, disposal, or special items.</div><MaterialTakeoff calcs={calcs} settings={settings} manualMaterials={manualMaterials} updateManualMaterial={updateManualMaterial} setManualMaterials={setManualMaterials} /></Card>}
+      {tab === "materials" && <Card title="Material Takeoff" action={<button onClick={() => setManualMaterials([...manualMaterials, emptyManualMaterial()])}><Plus size={16} /> Add Manual Material</button>}><div className="help">This is an estimate only. It uses your area lines, repairs, manual materials, waste percentage, sheet size, and rough coverage assumptions from Settings.</div><MaterialTakeoff calcs={calcs} settings={settings} manualMaterials={manualMaterials} updateManualMaterial={updateManualMaterial} setManualMaterials={setManualMaterials} /></Card>}
       {tab === "planning" && <Card title="Compound & Dry-Time Planner"><div className="help">Internal planning only. Setting compounds harden chemically, but sanding/paint-readiness still depends on thickness, humidity, temperature, airflow, and how cleanly the coat was applied.</div><CompoundPlanner rows={calcs.compoundPlan} stages={calcs.stagePlan} estimatedWorkDays={calcs.estimatedWorkDays} suggestedTripCount={calcs.suggestedTripCount} sameDay={settings.sameDayFinish === "Yes"} /><CrewPlanning calcs={calcs} settings={settings} /></Card>}
 
       {tab === "settings" && <Card title="Settings"><div className="settingsGroups"><SettingGroup title="Display & Pricing"><YesNoField label="Dark Mode" title="Switches the app between light and dark appearance." value={settings.darkMode} onChange={(v) => setSettings({ ...settings, darkMode: v })} /><SelectField label="Price Mode" title="Budget uses the low market range, Typical uses the average, Premium uses the high range." value={settings.priceMode} options={priceModeOptions} onChange={(v) => setSettings({ ...settings, priceMode: v })} /><SelectField label="Material Supply" title="Controls whether board material allowance is included in the estimate." value={settings.materialSupply} options={["Contractor supplies materials", "Client supplies materials", "Labour only"]} onChange={(v) => setSettings({ ...settings, materialSupply: v })} /></SettingGroup><SettingGroup title="Labour & Efficiency"><YesNoField label="Use Labour Adjustment?" title="Adjusts market sq ft pricing based on your current labour rate compared with the benchmark rate." value={settings.useLabourAdjustment} onChange={(v) => setSettings({ ...settings, useLabourAdjustment: v })} /><Num label="Benchmark Labour Rate" title="The assumed labour rate behind the market pricing. Usually left around $40-$45/hr." value={settings.benchmarkLabour} onChange={(v) => setSettings({ ...settings, benchmarkLabour: v })} /><Num label="Current Labour Rate" title="Your current loaded labour cost per worker hour." value={settings.currentLabour} onChange={(v) => setSettings({ ...settings, currentLabour: v })} /><Num label="Worker Efficiency %" title="Use less than 100% for a slower worker. Example: 80% means the work takes longer." value={settings.workerEfficiency} onChange={(v) => setSettings({ ...settings, workerEfficiency: v })} /><Num label="Workers" title="Number of workers on the job for crew clock-hour planning." value={settings.workerCount} onChange={(v) => setSettings({ ...settings, workerCount: v })} /><Num label="Crew Efficiency Loss / Extra Worker %" title="Accounts for coordination loss as more workers are added." value={settings.crewEfficiencyLoss} onChange={(v) => setSettings({ ...settings, crewEfficiencyLoss: v })} /></SettingGroup><SettingGroup title="Overhead, Markup & Tax"><Num label="Overhead %" title="Business overhead allowance before profit markup." value={settings.overhead} onChange={(v) => setSettings({ ...settings, overhead: v })} /><Num label="Markup / Profit %" title="Profit markup applied after overhead." value={settings.markup} onChange={(v) => setSettings({ ...settings, markup: v })} /><Num label="HST %" title="Nova Scotia HST is normally 15%." value={settings.hst} onChange={(v) => setSettings({ ...settings, hst: v })} /><Num label="Minimum Charge" title="Minimum pre-markup job charge to cover mobilization and small-job inefficiency." value={settings.minimumCharge} onChange={(v) => setSettings({ ...settings, minimumCharge: v })} /><Num label="Deposit %" title="Deposit amount shown on the client quote." value={settings.deposit} onChange={(v) => setSettings({ ...settings, deposit: v })} /></SettingGroup><SettingGroup title="Target Margin"><label title="When enabled, the estimator adds an internal adjustment to reach your target margin."><span>Use Target Margin?</span><ToggleYesNo value={settings.targetMarginMode === "On" ? "Yes" : "No"} onChange={(v) => setSettings({ ...settings, targetMarginMode: v === "Yes" ? "On" : "Off" })} /></label><Num label="Target Margin %" title="Desired gross margin percentage before HST." value={settings.targetMargin} onChange={(v) => setSettings({ ...settings, targetMargin: v })} /></SettingGroup><SettingGroup title="Material Takeoff"><Num label="Waste %" title="Extra material allowance added to sheet count." value={settings.wastePercent} onChange={(v) => setSettings({ ...settings, wastePercent: v })} /><Num label="Board Sq Ft" title="Standard 4x8 board is 32 sq ft." value={settings.boardSqFt} onChange={(v) => setSettings({ ...settings, boardSqFt: v })} /><Num label="Mud Coverage / Box Sq Ft" title="Rough compound coverage assumption for material takeoff." value={settings.mudCoveragePerBox} onChange={(v) => setSettings({ ...settings, mudCoveragePerBox: v })} /><Num label="Tape Coverage / Roll Ft" title="Typical paper tape roll coverage." value={settings.tapeCoveragePerRoll} onChange={(v) => setSettings({ ...settings, tapeCoveragePerRoll: v })} /><Num label="Screws / Sheet" title="Rough screw allowance per sheet." value={settings.screwsPerSheet} onChange={(v) => setSettings({ ...settings, screwsPerSheet: v })} /></SettingGroup><SettingGroup title="Dry-Time & Trip Planning"><YesNoField label="Prefer Same-Day Finish?" title="If yes, the compound planner favours Sheetrock 20/45/90 combinations for faster coat sequencing." value={settings.sameDayFinish} onChange={(v) => setSettings({ ...settings, sameDayFinish: v })} /><YesNoField label="Auto-Suggest Trip Count?" title="Uses 2n + 1, where n is estimated work days and +1 allows for a supply/material run." value={settings.autoTravelTrips} onChange={(v) => setSettings({ ...settings, autoTravelTrips: v })} /><Num label="Supply Run Trips" title="Additional material/supply runs added to the trip count. Usually 1." value={settings.supplyRunTrips} onChange={(v) => setSettings({ ...settings, supplyRunTrips: v })} /></SettingGroup></div></Card>}
@@ -481,10 +502,7 @@ function Empty({ text }) { return <div className="empty">{text}</div> }
 
 function EstimateTable({ lines, compact = false, client = false }) {
   if (!lines.length) return <Empty text="No estimate lines yet." />;
-  if (client) {
-    return <div className="tableWrap clientTable"><table><thead><tr><th>Item</th><th>Description</th><th>Total</th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td><span className="pill">{line.source}</span></td><td><div>{line.description}</div>{line.details?.length ? <ul className="clientDetails">{line.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul> : null}</td><td className="right"><b>{money(line.total)}</b></td></tr>)}</tbody></table></div>;
-  }
-  return <div className="tableWrap"><table><thead><tr><th>Type</th><th>Description</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Total</th>{!compact && <th>Labour Hrs</th>}{!compact && <th>Min Applied?</th>}</tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td><span className="pill">{line.source}</span></td><td><div>{line.description}</div></td><td className="right">{fmt(line.qty)}</td><td>{line.unit}</td><td className="right">{money(line.rate + (line.materialRate || 0))}</td><td className="right"><b>{money(line.total)}</b></td>{!compact && <td className="right">{fmt(line.labourHours, 1)}</td>}{!compact && <td>{line.minHoursApplied ? "Yes" : "No"}</td>}</tr>)}</tbody></table></div>;
+  return <div className="tableWrap"><table><thead><tr><th>Type</th><th>Description</th><th>Qty</th><th>Unit</th>{!client && <th>Rate</th>}<th>Total</th>{!compact && <th>Labour Hrs</th>}{!compact && <th>Min Applied?</th>}</tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td><span className="pill">{line.source}</span></td><td><div>{line.description}</div>{client && line.details?.length ? <ul className="clientDetails">{line.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul> : null}</td><td className="right">{fmt(line.qty)}</td><td>{line.unit}</td>{!client && <td className="right">{money(line.rate + (line.materialRate || 0))}</td>}<td className="right"><b>{money(line.total)}</b></td>{!compact && <td className="right">{fmt(line.labourHours, 1)}</td>}{!compact && <td>{line.minHoursApplied ? "Yes" : "No"}</td>}</tr>)}</tbody></table></div>;
 }
 function Totals({ calcs, showInternal = false }) {
   const alwaysShow = ["Pre-tax subtotal", "HST", "Total", "Deposit"];
@@ -503,31 +521,29 @@ function MaterialTakeoff({ calcs, settings, manualMaterials, updateManualMateria
       <div className="takeoffCard"><h3>Compound boxes/bags</h3><b>{Math.ceil(m.mudBoxes)}</b><small>Rough estimate based on finish coats</small></div>
       <div className="takeoffCard"><h3>Tape rolls</h3><b>{Math.ceil(m.tapeRolls)}</b><small>{fmt(m.linearTapeFt,0)} linear ft estimated, {settings.tapeCoveragePerRoll} ft/roll</small></div>
       <div className="takeoffCard"><h3>Screws</h3><b>{Math.ceil(m.screws)}</b><small>{settings.screwsPerSheet} screws/sheet</small></div>
+      <div className="takeoffCard"><h3>Manual materials</h3><b>{money(calcs.manualMaterialExpense)}</b><small>Uses {fmt(settings.wastePercent,0)}% waste from Settings</small></div>
       <div className="takeoffCard"><h3>Board breakdown</h3>{Object.entries(m.byBoard).length ? Object.entries(m.byBoard).map(([k,v]) => <p key={k}>{k}: <b>{Math.ceil(v)}</b> sheets</p>) : <small>No board needed yet.</small>}</div>
     </div>
 
     <div className="manualBox">
       <h3>Manual Materials</h3>
-      <p className="sectionNote">Use this for repair materials or trade-specific items that the automatic takeoff does not catch, like Sheetrock 45, corner bead, backing wood, sandpaper, primer, disposal bags, or specialty board. Waste is pulled from Settings ({fmt(settings.wastePercent, 0)}%).</p>
-      {manualMaterials.length === 0 ? <Empty text="No manual materials added yet." /> :
-      <div className="tableWrap"><table><thead><tr><th>Include</th><th>Category</th><th>Material</th><th>Qty</th><th>Unit</th><th>Unit Cost</th><th>Notes</th><th>Total</th><th></th></tr></thead><tbody>{manualMaterials.map((mat) => {
-        const qty = Number(mat.qty) || 0;
-        const unitCost = Number(mat.unitCost) || 0;
-        const waste = (Number(settings.wastePercent) || 0) / 100;
-        const total = qty * unitCost * (1 + waste);
-        return <tr key={mat.id}>
-          <td><ToggleYesNo value={mat.include} onChange={(v) => updateManualMaterial(mat.id, "include", v)} /></td>
-          <td><Select value={mat.category} options={["Drywall", "Compound", "Tape/Fasteners", "Backing/Framing", "Paint/Primer", "Disposal", "Misc"]} onChange={(v) => updateManualMaterial(mat.id, "category", v)} /></td>
-          <td><input value={mat.material} onChange={(e) => updateManualMaterial(mat.id, "material", e.target.value)} /></td>
-          <td><input type="number" value={mat.qty} onChange={(e) => updateManualMaterial(mat.id, "qty", e.target.value)} /></td>
-          <td><Select value={mat.unit} options={["each", "sheet", "bag", "box", "roll", "piece", "linear ft", "sq ft", "allowance"]} onChange={(v) => updateManualMaterial(mat.id, "unit", v)} /></td>
-          <td><input type="number" value={mat.unitCost} onChange={(e) => updateManualMaterial(mat.id, "unitCost", e.target.value)} /></td>
-          <td><input value={mat.notes} onChange={(e) => updateManualMaterial(mat.id, "notes", e.target.value)} /></td>
-          <td><b>{money(total)}</b></td>
-          <td><IconButton onClick={() => setManualMaterials(manualMaterials.filter((x) => x.id !== mat.id))} /></td>
-        </tr>
-      })}</tbody></table></div>}
-      <div className="manualMaterialTotal"><span>Manual material expense</span><b>{money(calcs.manualMaterialExpense || 0)}</b></div>
+      <div className="tableWrap"><table><thead><tr><th>Include</th><th>Material</th><th>Category</th><th>Qty</th><th>Unit</th><th>Unit Cost</th><th>Waste</th><th>Total</th><th>Notes</th><th></th></tr></thead><tbody>
+        {manualMaterials.length === 0 ? <tr><td colSpan="10"><Empty text="No manual materials added yet." /></td></tr> : manualMaterials.map((mat) => {
+          const total = (Number(mat.qty) || 0) * (Number(mat.unitCost) || 0) * (1 + ((Number(settings.wastePercent) || 0) / 100));
+          return <tr key={mat.id}>
+            <td><ToggleYesNo value={mat.include} onChange={(v) => updateManualMaterial(mat.id, "include", v)} /></td>
+            <td><Select value={mat.material} options={materialOptions} onChange={(v) => updateManualMaterial(mat.id, "material", v)} /></td>
+            <td><input value={mat.category} onChange={(e) => updateManualMaterial(mat.id, "category", e.target.value)} /></td>
+            <td><input type="number" value={mat.qty} onChange={(e) => updateManualMaterial(mat.id, "qty", e.target.value)} /></td>
+            <td><input value={mat.unit} onChange={(e) => updateManualMaterial(mat.id, "unit", e.target.value)} /></td>
+            <td><input type="number" value={mat.unitCost} onChange={(e) => updateManualMaterial(mat.id, "unitCost", e.target.value)} /></td>
+            <td>{fmt(settings.wastePercent,0)}%</td>
+            <td><b>{money(total)}</b></td>
+            <td><input value={mat.notes} onChange={(e) => updateManualMaterial(mat.id, "notes", e.target.value)} /></td>
+            <td><IconButton onClick={() => setManualMaterials(manualMaterials.filter((x) => x.id !== mat.id))} /></td>
+          </tr>
+        })}
+      </tbody></table></div>
     </div>
   </div>
 }
@@ -626,5 +642,5 @@ function CompoundPlanner({ rows, stages = null, estimatedWorkDays = 0, suggested
 function CrewPlanning({ calcs, settings }) { return <div className="crewBox"><h3><Clock size={18}/> Crew & Time Planning</h3><div className="marketRows"><div><span>Active production hours</span><b>{fmt(calcs.activeHours,1)}</b></div><div><span>Billable labour hours</span><b>{fmt(calcs.labourHours,1)}</b></div><div><span>Worker efficiency</span><b>{fmt(settings.workerEfficiency,0)}%</b></div><div><span>Suggested clock hours</span><b>{fmt(calcs.suggestedClockHours,1)}</b></div></div><small>Billable labour hours include minimum job blocks for small repairs/replacements where dry time, setup, coat sequencing, and return-trip logic matter more than pure square footage speed.</small></div> }
 
 const styles = `
-*{box-sizing:border-box}:root{--bg:#f8fafc;--card:#fff;--text:#0f172a;--muted:#64748b;--line:#e2e8f0;--soft:#f1f5f9;--dark:#0f172a;--darkText:#fff}body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--text)}.app{min-height:100vh;background:var(--bg);color:var(--text);padding:28px}.app.dark{--bg:#0b1120;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--line:#334155;--soft:#1f2937;--dark:#e5e7eb;--darkText:#0b1120}.app>*{max-width:1500px;margin-left:auto;margin-right:auto}.header{display:grid;grid-template-columns:1fr auto auto;gap:16px;align-items:end;margin-bottom:18px}.header h1{margin:0;font-size:32px}.header p{margin:6px 0 0;color:var(--muted)}.headerActions,.badges{display:flex;gap:10px;flex-wrap:wrap}.headerActions button,.badges span,.pill{background:var(--soft);color:var(--text);border:1px solid var(--line);border-radius:999px;padding:8px 11px;font-size:13px;display:flex;gap:6px;align-items:center}.headerActions button{cursor:pointer;font-weight:700}.summaryGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.summary{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;display:flex;gap:12px;align-items:center;box-shadow:0 1px 5px rgba(15,23,42,.06)}.summaryIcon{background:var(--soft);border-radius:14px;padding:10px;display:flex}.summary small{display:block;color:var(--muted)}.summary strong{font-size:20px}.tabs{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:8px;display:grid;grid-template-columns:repeat(9,1fr);gap:8px;margin-bottom:18px}.tabs button,.cardHead button{border:1px solid var(--line);border-radius:12px;padding:11px 12px;background:var(--soft);color:var(--text);cursor:pointer;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px}.tabs button.active,.cardHead button{background:var(--dark);color:var(--darkText)}.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:22px;box-shadow:0 1px 7px rgba(15,23,42,.06)}.cardHead{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}.cardHead h2{margin:0}.help{display:none}.notUsed,.autoTrips{display:block;text-align:center;color:var(--muted);padding:10px 0}.autoTrips{font-weight:800;color:var(--text)}.settingGroup{border:1px solid var(--line);border-radius:16px;background:var(--card);overflow:hidden}.settingGroup summary{cursor:pointer;font-weight:800;padding:14px 16px;background:var(--soft);border-bottom:1px solid var(--line)}.settingGroupBody{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:16px}.settingsGroups{display:grid;gap:14px}.formGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}label span{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-bottom:6px}.hint{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted);font-style:normal;font-size:11px;font-weight:800;cursor:help}input,select,textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--card);color:var(--text);font:inherit}input:disabled{opacity:.45}textarea{min-height:120px}.full{grid-column:1/-1}.tableWrap{overflow:auto;border:1px solid var(--line);border-radius:16px;background:var(--card)}table{border-collapse:collapse;width:100%;min-width:900px}th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{background:var(--soft);color:var(--muted);font-size:13px;white-space:nowrap}.right{text-align:right}.iconBtn{border:1px solid var(--line);background:var(--soft);color:var(--text);border-radius:10px;padding:9px;cursor:pointer}.empty{border:1px dashed var(--line);border-radius:18px;padding:36px;text-align:center;color:var(--muted);background:var(--card)}.manualBox{margin-top:20px}.materialsStack{display:grid;gap:22px}.sectionNote{color:var(--muted);margin:4px 0 12px}.manualMaterialTotal{display:flex;justify-content:space-between;gap:16px;margin-top:12px;background:var(--soft);border:1px solid var(--line);border-radius:14px;padding:14px;font-weight:800}.estimateGrid{display:grid;grid-template-columns:minmax(420px,560px) 1fr;gap:20px;align-items:start}.estimateSide{display:grid;gap:20px}.toggleYesNo{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card);min-width:110px}.toggleYesNo button{flex:1;border:0;background:transparent;color:var(--muted);padding:10px 12px;cursor:pointer;font-weight:700}.toggleYesNo button.selected{background:var(--dark);color:var(--darkText)}.totals,.marketBox,.crewBox{background:#0f172a;color:white;border-radius:18px;padding:18px;margin-top:20px}.app.dark .totals,.app.dark .marketBox,.app.dark .crewBox{background:#020617}.totalLine{display:flex;justify-content:space-between;gap:16px;padding:6px 0}.totalLine.big{border-top:1px solid rgba(255,255,255,.2);margin-top:8px;padding-top:12px;font-size:20px}.miniStats{border-top:1px solid rgba(255,255,255,.2);margin-top:12px;padding-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-size:13px;color:#cbd5e1}.miniStats4{grid-template-columns:repeat(2,1fr)}.marketBox h3,.crewBox h3{margin:0 0 10px;display:flex;gap:8px;align-items:center}.marketStatus{font-size:20px;font-weight:800;margin:0 0 12px}.marketRows{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}.marketRows div{background:rgba(255,255,255,.08);border-radius:12px;padding:12px}.marketRows span{display:block;color:#cbd5e1;font-size:13px}.marketRows b{font-size:18px}.marketBox small,.crewBox small{color:#cbd5e1}.profitBox{background:#14532d;color:white;border-radius:18px;padding:18px;margin-top:20px}.app.dark .profitBox{background:#064e3b}.profitBox h3{margin:0}.profitPercent{font-size:42px;font-weight:900;line-height:1;margin-top:12px}.profitBox p{margin:6px 0 14px;color:#dcfce7}.profitRows{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.profitRows div{background:rgba(255,255,255,.12);border-radius:12px;padding:12px}.profitRows span{display:block;color:#dcfce7;font-size:13px}.profitRows b{font-size:18px}.clientTable table{min-width:0}.clientTable th:nth-child(1),.clientTable td:nth-child(1){width:120px}.clientTable th:nth-child(3),.clientTable td:nth-child(3){width:160px}.clientDetails{margin:8px 0 0 18px;color:var(--muted);font-size:14px}.clientDetails li{margin:3px 0}.plannerStack{display:grid;gap:18px}.plannerNote{background:var(--soft);border:1px solid var(--line);border-radius:14px;padding:14px;color:var(--muted)}.takeoffGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.takeoffCard{background:var(--soft);border:1px solid var(--line);border-radius:18px;padding:18px}.takeoffCard h3{margin:0 0 8px}.takeoffCard b{font-size:28px}.takeoffCard small,.takeoffCard p{color:var(--muted)}.quote{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:24px}.quoteHead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);margin-bottom:18px;padding-bottom:18px}.quoteHead h2{margin:0}.quoteGrid{display:grid;grid-template-columns:1fr 420px;gap:22px;margin-top:20px}.clientTotals{margin-top:0}@media(max-width:1100px){.summaryGrid,.formGrid,.tabs,.quoteGrid,.header,.estimateGrid,.takeoffGrid,.settingGroupBody{grid-template-columns:1fr}.quoteHead{flex-direction:column}.totals{max-width:100%}}@media print{.tabs,.summaryGrid,.headerActions,.cardHead button,.help{display:none!important}.app{padding:0;background:white;color:#0f172a}.card{box-shadow:none;border:none}.quote{border:none}.tableWrap{overflow:visible}body{background:white}}
+*{box-sizing:border-box}:root{--bg:#f8fafc;--card:#fff;--text:#0f172a;--muted:#64748b;--line:#e2e8f0;--soft:#f1f5f9;--dark:#0f172a;--darkText:#fff}body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--text)}.app{min-height:100vh;background:var(--bg);color:var(--text);padding:28px}.app.dark{--bg:#0b1120;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--line:#334155;--soft:#1f2937;--dark:#e5e7eb;--darkText:#0b1120}.app>*{max-width:1500px;margin-left:auto;margin-right:auto}.header{display:grid;grid-template-columns:1fr auto auto;gap:16px;align-items:end;margin-bottom:18px}.header h1{margin:0;font-size:32px}.header p{margin:6px 0 0;color:var(--muted)}.headerActions,.badges{display:flex;gap:10px;flex-wrap:wrap}.headerActions button,.badges span,.pill{background:var(--soft);color:var(--text);border:1px solid var(--line);border-radius:999px;padding:8px 11px;font-size:13px;display:flex;gap:6px;align-items:center}.headerActions button{cursor:pointer;font-weight:700}.summaryGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.summary{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;display:flex;gap:12px;align-items:center;box-shadow:0 1px 5px rgba(15,23,42,.06)}.summaryIcon{background:var(--soft);border-radius:14px;padding:10px;display:flex}.summary small{display:block;color:var(--muted)}.summary strong{font-size:20px}.tabs{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:8px;display:grid;grid-template-columns:repeat(9,1fr);gap:8px;margin-bottom:18px}.tabs button,.cardHead button{border:1px solid var(--line);border-radius:12px;padding:11px 12px;background:var(--soft);color:var(--text);cursor:pointer;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px}.tabs button.active,.cardHead button{background:var(--dark);color:var(--darkText)}.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:22px;box-shadow:0 1px 7px rgba(15,23,42,.06)}.cardHead{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}.cardHead h2{margin:0}.help{display:none}.notUsed,.autoTrips{display:block;text-align:center;color:var(--muted);padding:10px 0}.autoTrips{font-weight:800;color:var(--text)}.settingGroup{border:1px solid var(--line);border-radius:16px;background:var(--card);overflow:hidden}.settingGroup summary{cursor:pointer;font-weight:800;padding:14px 16px;background:var(--soft);border-bottom:1px solid var(--line)}.settingGroupBody{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:16px}.settingsGroups{display:grid;gap:14px}.formGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}label span{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-bottom:6px}.hint{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted);font-style:normal;font-size:11px;font-weight:800;cursor:help}input,select,textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--card);color:var(--text);font:inherit}input:disabled{opacity:.45}textarea{min-height:120px}.full{grid-column:1/-1}.tableWrap{overflow:auto;border:1px solid var(--line);border-radius:16px;background:var(--card)}table{border-collapse:collapse;width:100%;min-width:900px}th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{background:var(--soft);color:var(--muted);font-size:13px;white-space:nowrap}.right{text-align:right}.iconBtn{border:1px solid var(--line);background:var(--soft);color:var(--text);border-radius:10px;padding:9px;cursor:pointer}.empty{border:1px dashed var(--line);border-radius:18px;padding:36px;text-align:center;color:var(--muted);background:var(--card)}.manualBox{margin-top:20px}.estimateGrid{display:grid;grid-template-columns:minmax(420px,560px) 1fr;gap:20px;align-items:start}.estimateSide{display:grid;gap:20px}.toggleYesNo{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card);min-width:110px}.toggleYesNo button{flex:1;border:0;background:transparent;color:var(--muted);padding:10px 12px;cursor:pointer;font-weight:700}.toggleYesNo button.selected{background:var(--dark);color:var(--darkText)}.totals,.marketBox,.crewBox{background:#0f172a;color:white;border-radius:18px;padding:18px;margin-top:20px}.app.dark .totals,.app.dark .marketBox,.app.dark .crewBox{background:#020617}.totalLine{display:flex;justify-content:space-between;gap:16px;padding:6px 0}.totalLine.big{border-top:1px solid rgba(255,255,255,.2);margin-top:8px;padding-top:12px;font-size:20px}.miniStats{border-top:1px solid rgba(255,255,255,.2);margin-top:12px;padding-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-size:13px;color:#cbd5e1}.miniStats4{grid-template-columns:repeat(2,1fr)}.marketBox h3,.crewBox h3{margin:0 0 10px;display:flex;gap:8px;align-items:center}.marketStatus{font-size:20px;font-weight:800;margin:0 0 12px}.marketRows{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}.marketRows div{background:rgba(255,255,255,.08);border-radius:12px;padding:12px}.marketRows span{display:block;color:#cbd5e1;font-size:13px}.marketRows b{font-size:18px}.marketBox small,.crewBox small{color:#cbd5e1}.profitBox{background:#14532d;color:white;border-radius:18px;padding:18px;margin-top:20px}.app.dark .profitBox{background:#064e3b}.profitBox h3{margin:0}.profitPercent{font-size:42px;font-weight:900;line-height:1;margin-top:12px}.profitBox p{margin:6px 0 14px;color:#dcfce7}.profitRows{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.profitRows div{background:rgba(255,255,255,.12);border-radius:12px;padding:12px}.profitRows span{display:block;color:#dcfce7;font-size:13px}.profitRows b{font-size:18px}.clientDetails{margin:8px 0 0 18px;color:var(--muted);font-size:14px}.clientDetails li{margin:3px 0}.plannerStack{display:grid;gap:18px}.plannerNote{background:var(--soft);border:1px solid var(--line);border-radius:14px;padding:14px;color:var(--muted)}.materialsStack{display:grid;gap:18px}.takeoffGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.takeoffCard{background:var(--soft);border:1px solid var(--line);border-radius:18px;padding:18px}.takeoffCard h3{margin:0 0 8px}.takeoffCard b{font-size:28px}.takeoffCard small,.takeoffCard p{color:var(--muted)}.quote{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:24px}.quoteHead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);margin-bottom:18px;padding-bottom:18px}.quoteHead h2{margin:0}.quoteGrid{display:grid;grid-template-columns:1fr 420px;gap:22px;margin-top:20px}.clientTotals{margin-top:0}@media(max-width:1100px){.summaryGrid,.formGrid,.tabs,.quoteGrid,.header,.estimateGrid,.takeoffGrid,.settingGroupBody{grid-template-columns:1fr}.quoteHead{flex-direction:column}.totals{max-width:100%}}@media print{.tabs,.summaryGrid,.headerActions,.cardHead button,.help{display:none!important}.app{padding:0;background:white;color:#0f172a}.card{box-shadow:none;border:none}.quote{border:none}.tableWrap{overflow:visible}body{background:white}}
 `;
