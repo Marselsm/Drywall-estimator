@@ -350,8 +350,11 @@ export default function App() {
       ...manualMaterialLines.map((line) => `${line.description}: ${fmt(line.qty)} ${line.unit}`),
     ].filter(Boolean);
 
-    const baseMaterialShare = directCost > 0 ? materialExpense / directCost : 0;
-    const clientMaterialTotal = preTax * baseMaterialShare;
+    // Client quote grouping:
+    // Keep the final quote total exactly the same, but show only two client-facing categories.
+    // Materials use the actual internal material expense, while labour carries the remaining sell price
+    // including labour, travel/mobilization, overhead, markup, minimum adjustments, and profit.
+    const clientMaterialTotal = materialExpense;
     const clientLabourTotal = Math.max(0, preTax - clientMaterialTotal);
     const clientLines = [
       { id: "client-labour", source: "Labour", description: "Labour", details: labourScopeDetails, qty: 1, unit: "", rate: 0, materialRate: 0, total: clientLabourTotal, labourHours: 0 },
@@ -532,7 +535,7 @@ function MaterialTakeoff({ calcs, settings, manualMaterials, updateManualMateria
 
     <div className="manualBox">
       <h3>Manual Materials</h3>
-      <div className="tableWrap"><table><thead><tr><th>Include</th><th>Material</th><th>Category</th><th>Qty</th><th>Unit Cost</th><th>Waste</th><th>Total</th><th>Notes</th><th></th></tr></thead><tbody>
+      <div className="tableWrap"><table><thead><tr><th>Include</th><th>Material</th><th>Category</th><th>Qty</th><th>Price</th><th>Waste</th><th>Total</th><th>Notes</th><th></th></tr></thead><tbody>
         {manualMaterials.length === 0 ? <tr><td colSpan="9"><Empty text="No manual materials added yet." /></td></tr> : manualMaterials.map((mat) => {
           const libraryItem = materialLibrary[mat.material] || materialLibrary["Custom material"];
           const unitCost = libraryItem.custom ? (Number(mat.unitCost) || 0) : (Number(libraryItem.unitCost) || 0);
